@@ -111,7 +111,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       size,
     });
 
-    const b64 = result.data[0]?.b64_json;
+    const b64 = result.data?.[0]?.b64_json;
     if (!b64) {
       console.error("[RoomAI] No image data returned");
       return NextResponse.json({ error: "No image returned" }, { status: 502 });
