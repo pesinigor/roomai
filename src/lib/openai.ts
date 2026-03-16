@@ -1,13 +1,8 @@
 import OpenAI from "openai";
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error(
-    "Missing OPENAI_API_KEY environment variable. Add it to .env.local"
-  );
-}
-
+// Key is validated at runtime (inside API routes), not at build time
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY ?? "missing",
 });
 
 export default openai;
