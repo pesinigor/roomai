@@ -28,16 +28,13 @@ export function CTASection() {
             <Printer className="h-4 w-4" />
             Save as PDF
           </Button>
-          <Button
-            size="sm"
-            className="gap-2"
-            asChild
+          <a
+            href={`mailto:${contactEmail}?subject=Interior Design Inquiry&body=Hi! I just used RoomAI and would love to move forward with one of my design proposals.`}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
           >
-            <a href={`mailto:${contactEmail}?subject=Interior Design Inquiry&body=Hi! I just used RoomAI and would love to move forward with one of my design proposals.`}>
-              <Mail className="h-4 w-4" />
-              Talk to a Designer
-            </a>
-          </Button>
+            <Mail className="h-4 w-4" />
+            Talk to a Designer
+          </a>
         </div>
       </div>
     </div>
