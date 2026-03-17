@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { ProposalGrid } from "@/components/results/ProposalGrid";
 import { CTASection } from "@/components/results/CTASection";
 import { ProgressIndicator } from "@/components/shared/ProgressIndicator";
 import { loadSession } from "@/lib/session-storage";
-import { getRenderCache } from "@/lib/render-cache";
-import type { RoomAISession } from "@/types";
+import { getRenderCache, setRenderCache } from "@/lib/render-cache";
+import type { RoomAISession, DesignProposal } from "@/types";
 
 export default function ResultsPage() {
   const router = useRouter();
   const [session, setSession] = useState<RoomAISession | null>(null);
   const [renderUrls, setRenderUrls] = useState<Record<string, string | undefined>>({});
+  const [retryingIds, setRetryingIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,10 +24,46 @@ export default function ResultsPage() {
       return;
     }
     setSession(stored);
-    // Renders were pre-generated in page.tsx before navigation
     setRenderUrls(getRenderCache());
     setLoading(false);
   }, [router]);
+
+  const retryRender = useCallback(async (proposalId: string) => {
+    if (!session) return;
+    const proposal = session.analysisResult.proposals.find(
+      (p: DesignProposal) => p.id === proposalId
+    );
+    if (!proposal) return;
+
+    setRetryingIds((prev) => ({ ...prev, [proposalId]: true }));
+    try {
+      const imageBlob = await fetch(session.originalImageDataUrl).then((r) => r.blob());
+      const fd = new FormData();
+      fd.append("image", imageBlob, "room.png");
+      fd.append("proposal", JSON.stringify({
+        tier: proposal.tier,
+        styleName: proposal.styleName,
+        description: proposal.description,
+        colorPalette: proposal.colorPalette,
+        furnitureItems: proposal.furnitureItems,
+        moodKeywords: proposal.moodKeywords,
+        roomDescription: session.analysisResult.roomDescription,
+      }));
+      const res = await fetch("/api/render", { method: "POST", body: fd });
+      const data = (await res.json()) as { imageUrl?: string };
+      if (data.imageUrl) {
+        setRenderUrls((prev) => {
+          const updated = { ...prev, [proposalId]: data.imageUrl };
+          setRenderCache(updated);
+          return updated;
+        });
+      }
+    } catch {
+      // stays undefined — button stays visible for another retry
+    } finally {
+      setRetryingIds((prev) => ({ ...prev, [proposalId]: false }));
+    }
+  }, [session]);
 
   if (loading) {
     return (
@@ -79,8 +116,12 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          {/* Proposals — all renders already loaded */}
-          <ProposalGrid proposals={analysisResult.proposals} renderUrls={renderUrls} />
+          <ProposalGrid
+            proposals={analysisResult.proposals}
+            renderUrls={renderUrls}
+            onRetryRender={retryRender}
+            retryingIds={retryingIds}
+          />
         </div>
       </main>
 

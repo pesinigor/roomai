@@ -26,11 +26,13 @@ const TIER_CONFIG: Record<ProposalTier, { label: string; Icon: typeof Zap; class
 interface ProposalCardProps {
   proposal: DesignProposal;
   index: number;
-  // null = loading, string = image URL, undefined = failed
+  // null = loading, string = image URL, undefined = failed/not available
   renderUrl: string | null | undefined;
+  onRetryRender?: () => void;
+  isRetrying?: boolean;
 }
 
-export function ProposalCard({ proposal, index, renderUrl }: ProposalCardProps) {
+export function ProposalCard({ proposal, index, renderUrl, onRetryRender, isRetrying }: ProposalCardProps) {
   const tier = TIER_CONFIG[proposal.tier] ?? TIER_CONFIG.basic;
   const TierIcon = tier.Icon;
   return (
@@ -81,7 +83,7 @@ export function ProposalCard({ proposal, index, renderUrl }: ProposalCardProps) 
             </div>
           </div>
         ) : (
-          /* Failed — show text header instead */
+          /* Failed — show text header + retry button */
           <div className="px-5 py-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -93,9 +95,24 @@ export function ProposalCard({ proposal, index, renderUrl }: ProposalCardProps) 
                   <p className="text-sm text-primary">{proposal.tagline}</p>
                 </div>
               </div>
-              <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold shrink-0 ${tier.className}`}>
-                <TierIcon className="h-3 w-3" />
-                {tier.label}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${tier.className}`}>
+                  <TierIcon className="h-3 w-3" />
+                  {tier.label}
+                </div>
+                {onRetryRender && (
+                  <button
+                    onClick={onRetryRender}
+                    disabled={isRetrying}
+                    className="flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                  >
+                    {isRetrying ? (
+                      <><Sparkles className="h-3 w-3 animate-pulse" />Generating…</>
+                    ) : (
+                      <><Sparkles className="h-3 w-3" />Generate render</>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

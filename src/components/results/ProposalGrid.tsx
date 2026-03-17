@@ -7,11 +7,12 @@ import type { DesignProposal } from "@/types";
 
 interface ProposalGridProps {
   proposals: DesignProposal[];
-  // string = ready, undefined = not available
   renderUrls: Record<string, string | undefined>;
+  onRetryRender?: (proposalId: string) => void;
+  retryingIds?: Record<string, boolean>;
 }
 
-export function ProposalGrid({ proposals, renderUrls }: ProposalGridProps) {
+export function ProposalGrid({ proposals, renderUrls, onRetryRender, retryingIds }: ProposalGridProps) {
   return (
     <Tabs defaultValue="proposal_1" className="w-full">
       <TabsList className="w-full h-auto p-1 grid grid-cols-3 mb-6">
@@ -38,6 +39,8 @@ export function ProposalGrid({ proposals, renderUrls }: ProposalGridProps) {
             proposal={proposal}
             index={i}
             renderUrl={renderUrls[proposal.id]}
+            onRetryRender={onRetryRender ? () => onRetryRender(proposal.id) : undefined}
+            isRetrying={retryingIds?.[proposal.id] ?? false}
           />
         </TabsContent>
       ))}
