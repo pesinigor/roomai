@@ -186,6 +186,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         502
       );
     }
+    if (error.status === 504) {
+      return errorResponse(
+        { error: "Analysis timed out. Try a smaller or lower-resolution photo.", code: "OPENAI_ERROR" },
+        504
+      );
+    }
     if (error.status && error.status >= 500) {
       return errorResponse(
         { error: "AI service is temporarily unavailable. Please try again.", code: "OPENAI_ERROR" },

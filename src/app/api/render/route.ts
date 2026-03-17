@@ -93,8 +93,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const tier = proposalData.tier ?? "basic";
-  // Premium gets the highest resolution; basic/smart use square for speed
-  const size = tier === "premium" ? "1536x1024" : "1024x1024";
+  // All tiers use 1024x1024 to stay safely under Vercel's 60s function limit
+  const size = "1024x1024";
 
   try {
     const buffer = Buffer.from(await imageFile.arrayBuffer());
