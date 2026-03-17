@@ -104,29 +104,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     additionalNotes: notes || undefined,
   });
 
-  try {
-    // Step 1: Analyze the room with GPT-4o Vision
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5.4",
-      max_completion_tokens: 16384,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+  // Shared messages payload — same for primary and fallback model
+  const messages: Parameters<typeof openai.chat.completions.create>[0]["messages"] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: userMessage },
         {
-          role: "user",
-          content: [
-            { type: "text", text: userMessage },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${mimeType};base64,${base64}`,
-                detail: "auto",
-              },
-            },
-          ],
+          type: "image_url",
+          image_url: {
+            url: `data:${mimeType};base64,${base64}`,
+            detail: "auto",
+          },
         },
       ],
+    },
+  ];
+
+  const callOpenAI = (model: string) =>
+    openai.chat.completions.create({
+      model,
+      max_completion_tokens: 4096,
+      response_format: { type: "json_object" },
+      messages,
     });
+
+  try {
+    // Primary: gpt-5.4 — fallback to gpt-4o on rate-limit
+    let completion;
+    try {
+      completion = await callOpenAI("gpt-5.4");
+    } catch (primaryErr) {
+      const pe = primaryErr as { status?: number };
+      if (pe.status === 429 || pe.status === 404) {
+        console.warn(`[RoomAI] ${pe.status} on gpt-5.4, falling back to gpt-4o`);
+        completion = await callOpenAI("gpt-4o");
+      } else {
+        throw primaryErr;
+      }
+    }
 
     const choice = completion.choices[0];
     const content = choice?.message?.content;
