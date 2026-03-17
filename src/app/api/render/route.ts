@@ -3,7 +3,12 @@ import { toFile } from "openai";
 import openai from "@/lib/openai";
 import type { ColorSwatch, FurnitureItem, ProposalTier } from "@/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
+
+// Warmup endpoint — called at analysis start to pre-heat the container
+export async function GET() {
+  return NextResponse.json({ status: "ready" });
+}
 
 interface ProposalData {
   tier?: ProposalTier;

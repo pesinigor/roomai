@@ -7,13 +7,40 @@ import { ProposalGrid } from "@/components/results/ProposalGrid";
 import { CTASection } from "@/components/results/CTASection";
 import { ProgressIndicator } from "@/components/shared/ProgressIndicator";
 import { loadSession } from "@/lib/session-storage";
-import { getRenderCache, setRenderCache } from "@/lib/render-cache";
+import { setRenderCache } from "@/lib/render-cache";
 import type { RoomAISession, DesignProposal } from "@/types";
+
+// Standalone helper — fetches a single render, returns imageUrl or undefined
+async function fetchRender(
+  proposal: DesignProposal,
+  imageDataUrl: string,
+  roomDescription: string
+): Promise<string | undefined> {
+  const imageBlob = await fetch(imageDataUrl).then((r) => r.blob());
+  const fd = new FormData();
+  fd.append("image", imageBlob, "room.png");
+  fd.append(
+    "proposal",
+    JSON.stringify({
+      tier: proposal.tier,
+      styleName: proposal.styleName,
+      description: proposal.description,
+      colorPalette: proposal.colorPalette,
+      furnitureItems: proposal.furnitureItems,
+      moodKeywords: proposal.moodKeywords,
+      roomDescription,
+    })
+  );
+  const res = await fetch("/api/render", { method: "POST", body: fd });
+  const data = (await res.json()) as { imageUrl?: string };
+  return data.imageUrl;
+}
 
 export default function ResultsPage() {
   const router = useRouter();
   const [session, setSession] = useState<RoomAISession | null>(null);
-  const [renderUrls, setRenderUrls] = useState<Record<string, string | undefined>>({});
+  // null = loading skeleton, string = ready, undefined = failed
+  const [renderUrls, setRenderUrls] = useState<Record<string, string | null | undefined>>({});
   const [retryingIds, setRetryingIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
@@ -24,46 +51,74 @@ export default function ResultsPage() {
       return;
     }
     setSession(stored);
-    setRenderUrls(getRenderCache());
     setLoading(false);
+
+    // Mark all renders as loading (null = skeleton)
+    const initial: Record<string, null> = {};
+    stored.analysisResult.proposals.forEach((p) => {
+      initial[p.id] = null;
+    });
+    setRenderUrls(initial);
+
+    // Fire all 3 renders in parallel — each updates state as it completes
+    stored.analysisResult.proposals.forEach((proposal) => {
+      fetchRender(
+        proposal,
+        stored.originalImageDataUrl,
+        stored.analysisResult.roomDescription
+      )
+        .then((imageUrl) => {
+          setRenderUrls((prev) => {
+            const updated = { ...prev, [proposal.id]: imageUrl ?? undefined };
+            setRenderCache(updated as Record<string, string | undefined>);
+            return updated;
+          });
+        })
+        .catch(() => {
+          setRenderUrls((prev) => {
+            const updated = { ...prev, [proposal.id]: undefined };
+            setRenderCache(updated as Record<string, string | undefined>);
+            return updated;
+          });
+        });
+    });
   }, [router]);
 
-  const retryRender = useCallback(async (proposalId: string) => {
-    if (!session) return;
-    const proposal = session.analysisResult.proposals.find(
-      (p: DesignProposal) => p.id === proposalId
-    );
-    if (!proposal) return;
+  const retryRender = useCallback(
+    async (proposalId: string) => {
+      if (!session) return;
+      const proposal = session.analysisResult.proposals.find(
+        (p: DesignProposal) => p.id === proposalId
+      );
+      if (!proposal) return;
 
-    setRetryingIds((prev) => ({ ...prev, [proposalId]: true }));
-    try {
-      const imageBlob = await fetch(session.originalImageDataUrl).then((r) => r.blob());
-      const fd = new FormData();
-      fd.append("image", imageBlob, "room.png");
-      fd.append("proposal", JSON.stringify({
-        tier: proposal.tier,
-        styleName: proposal.styleName,
-        description: proposal.description,
-        colorPalette: proposal.colorPalette,
-        furnitureItems: proposal.furnitureItems,
-        moodKeywords: proposal.moodKeywords,
-        roomDescription: session.analysisResult.roomDescription,
-      }));
-      const res = await fetch("/api/render", { method: "POST", body: fd });
-      const data = (await res.json()) as { imageUrl?: string };
-      if (data.imageUrl) {
+      // Show loading skeleton while retrying
+      setRetryingIds((prev) => ({ ...prev, [proposalId]: true }));
+      setRenderUrls((prev) => ({ ...prev, [proposalId]: null }));
+
+      try {
+        const imageUrl = await fetchRender(
+          proposal,
+          session.originalImageDataUrl,
+          session.analysisResult.roomDescription
+        );
         setRenderUrls((prev) => {
-          const updated = { ...prev, [proposalId]: data.imageUrl };
-          setRenderCache(updated);
+          const updated = { ...prev, [proposalId]: imageUrl ?? undefined };
+          setRenderCache(updated as Record<string, string | undefined>);
           return updated;
         });
+      } catch {
+        setRenderUrls((prev) => {
+          const updated = { ...prev, [proposalId]: undefined };
+          setRenderCache(updated as Record<string, string | undefined>);
+          return updated;
+        });
+      } finally {
+        setRetryingIds((prev) => ({ ...prev, [proposalId]: false }));
       }
-    } catch {
-      // stays undefined — button stays visible for another retry
-    } finally {
-      setRetryingIds((prev) => ({ ...prev, [proposalId]: false }));
-    }
-  }, [session]);
+    },
+    [session]
+  );
 
   if (loading) {
     return (

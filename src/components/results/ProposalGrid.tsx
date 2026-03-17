@@ -7,7 +7,7 @@ import type { DesignProposal } from "@/types";
 
 interface ProposalGridProps {
   proposals: DesignProposal[];
-  renderUrls: Record<string, string | undefined>;
+  renderUrls: Record<string, string | null | undefined>;
   onRetryRender?: (proposalId: string) => void;
   retryingIds?: Record<string, boolean>;
 }

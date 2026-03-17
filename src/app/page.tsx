@@ -7,11 +7,10 @@ import { Button } from "@/components/ui/button";
 import { UploadZone } from "@/components/upload/UploadZone";
 import { PreferencesForm } from "@/components/upload/PreferencesForm";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
-import { RenderProgress } from "@/components/shared/RenderProgress";
 import { ErrorMessage } from "@/components/shared/ErrorMessage";
 import { ProgressIndicator } from "@/components/shared/ProgressIndicator";
 import { saveSession, clearSession } from "@/lib/session-storage";
-import { setRenderCache, clearRenderCache } from "@/lib/render-cache";
+import { clearRenderCache } from "@/lib/render-cache";
 import { fileToDataUrl } from "@/lib/image-utils";
 import type { AnalyzeRequest, AnalyzeResponse, APIError } from "@/types";
 
@@ -33,30 +32,29 @@ const FEATURES = [
   },
 ];
 
-type Phase = "idle" | "analyzing" | "rendering";
-
 export default function HomePage() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preferences, setPreferences] = useState<AnalyzeRequest>({});
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<APIError | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
-  const [renderProgress, setRenderProgress] = useState<
-    Record<string, "pending" | "done" | "failed">
-  >({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || phase !== "idle") return;
+    if (!selectedFile || isAnalyzing) return;
 
     setError(null);
-    setPhase("analyzing");
+    setIsAnalyzing(true);
     clearSession();
     clearRenderCache();
 
+    // Fire warmup GET to pre-heat the render container while analysis runs
+    fetch("/api/render").catch(() => {
+      /* ignore — this is just a warmup ping */
+    });
+
     try {
-      // ── Phase 1: Analyze room ──────────────────────────────────────────────
+      // ── Analyze room ────────────────────────────────────────────────────────
       const formData = new FormData();
       formData.append("image", selectedFile);
       if (preferences.budgetRange)
@@ -71,93 +69,34 @@ export default function HomePage() {
 
       if (!res.ok) {
         setError(data as APIError);
-        setPhase("idle");
+        setIsAnalyzing(false);
         return;
       }
 
       const analysisData = data as AnalyzeResponse;
-
-      // Convert image to data URL + Blob once; reuse for all 3 renders
       const imageDataUrl = await fileToDataUrl(selectedFile);
-      const imageBlob = await fetch(imageDataUrl).then((r) => r.blob());
 
-      // ── Phase 2: Generate renders ──────────────────────────────────────────
-      const initial: Record<string, "pending"> = {};
-      analysisData.proposals.forEach((p) => { initial[p.id] = "pending"; });
-      setRenderProgress(initial);
-      setAnalysisResult(analysisData);
-      setPhase("rendering");
-
-      const collectedUrls: Record<string, string | undefined> = {};
-      let completedCount = 0;
-      const total = analysisData.proposals.length;
-
-      // Stagger renders 3 s apart to avoid rate-limit spikes
-      analysisData.proposals.forEach((proposal, idx) => {
-        setTimeout(async () => {
-          try {
-            const fd = new FormData();
-            fd.append("image", imageBlob, "room.png");
-            fd.append(
-              "proposal",
-              JSON.stringify({
-                tier: proposal.tier,
-                styleName: proposal.styleName,
-                description: proposal.description,
-                colorPalette: proposal.colorPalette,
-                furnitureItems: proposal.furnitureItems,
-                moodKeywords: proposal.moodKeywords,
-                roomDescription: analysisData.roomDescription,
-              })
-            );
-
-            const renderRes = await fetch("/api/render", {
-              method: "POST",
-              body: fd,
-            });
-            const renderData = (await renderRes.json()) as { imageUrl?: string };
-            collectedUrls[proposal.id] = renderData.imageUrl;
-            setRenderProgress((prev) => ({
-              ...prev,
-              [proposal.id]: renderData.imageUrl ? "done" : "failed",
-            }));
-          } catch {
-            collectedUrls[proposal.id] = undefined;
-            setRenderProgress((prev) => ({
-              ...prev,
-              [proposal.id]: "failed",
-            }));
-          }
-
-          completedCount++;
-          if (completedCount >= total) {
-            // All renders done or failed — navigate to results
-            setRenderCache(collectedUrls);
-            saveSession({
-              analysisResult: analysisData,
-              originalImageDataUrl: imageDataUrl,
-              preferences,
-              timestamp: Date.now(),
-            });
-            router.push("/results");
-          }
-        }, idx * 3000);
+      saveSession({
+        analysisResult: analysisData,
+        originalImageDataUrl: imageDataUrl,
+        preferences,
+        timestamp: Date.now(),
       });
+
+      // Navigate immediately — renders will load progressively on the results page
+      router.push("/results");
     } catch {
       setError({
         error: "Network error. Please check your connection and try again.",
         code: "UNKNOWN",
       });
-      setPhase("idle");
+      setIsAnalyzing(false);
     }
   };
 
   return (
     <>
-      {phase === "analyzing" && <LoadingSpinner />}
-      {phase === "rendering" && analysisResult && (
-        <RenderProgress proposals={analysisResult.proposals} progress={renderProgress} />
-      )}
+      {isAnalyzing && <LoadingSpinner />}
 
       <main className="flex-1">
         {/* Hero */}
@@ -204,7 +143,7 @@ export default function HomePage() {
             <Button
               type="submit"
               size="lg"
-              disabled={!selectedFile || phase !== "idle"}
+              disabled={!selectedFile || isAnalyzing}
               className="w-full gap-2 text-base"
             >
               Analyze My Room
