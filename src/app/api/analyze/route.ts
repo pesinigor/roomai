@@ -182,7 +182,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Return proposals immediately — renders are fetched client-side via /api/render
     return NextResponse.json(parsed as AnalyzeResponse, { status: 200 });
   } catch (err) {
-    const error = err as { status?: number; message?: string; name?: string };
+    const error = err as { status?: number; message?: string; name?: string; code?: string };
+    console.error("[RoomAI] Outer catch:", error.message, "| status:", error.status, "| code:", error.code);
 
     if (error.name === "AbortError") {
       return errorResponse(
@@ -191,8 +192,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
     if (error.status === 429) {
+      // Distinguish quota exhausted (billing issue) from rate limit (slow down)
+      if (error.code === "insufficient_quota" || error.message?.includes("quota")) {
+        return errorResponse(
+          { error: "OpenAI API quota exceeded. Please add credits at platform.openai.com/settings/billing.", code: "RATE_LIMITED" },
+          429
+        );
+      }
       return errorResponse(
-        { error: "Service is busy. Please try again in a moment.", code: "RATE_LIMITED" },
+        { error: "Service is busy. Please wait a moment and try again.", code: "RATE_LIMITED" },
         429
       );
     }
